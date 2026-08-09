@@ -1,0 +1,592 @@
+---
+title: "401 Final Report"
+author: Liam Szymonski
+published: December 24,2025
+format: 
+  html:
+    self-contained: True
+toc: true
+---
+
+## 1. Introduction
+
+The data set chosen for this analysis is NBA player box scores from the hoopR package. It's a data set containing the player season averages from 295 qualifying NBA players from the 2023-24 season. The present analysis examines predictors of average player plus/mins per game (plus_minus_per), focusing on players' average assists, rebounds, and steals per game.
+
+## 2. Research Question & Hypotheses
+
+This research addresses whether commonly measured statistics of player assists, rebounds, and steals are statistically significant predictors of a player’s contribution to team scoring outcomes as measured by plus/minus per game.
+
+### 2.1 Research Question
+
+Can a player’s assists, rebounds, and steals predict their plus/minus per game in NBA games?
+
+### 2.2 Variables
+
+Dependent Variable: player plus/minus per game (plus_minus_per)
+
+Independent Variables: player's average asssits per game (avg_ast), player's average rebounds per game (avg_reb), and player's average steals per game (avg_stl)
+
+### 2.3 Hypotheses
+
+Assists:
+
+$H_0: \beta_{1} = 0$ - Player average assist has no effect on plus/minus per game when accounting for average steals and rebounds.
+
+$H_a: \beta_{1} \not= 0$ - Player average assist positively predicts player plus/minus per game, even when controlling for average steals and rebounds.
+
+Rebounds:
+
+$H_0: \beta_{2} = 0$ - Player average steals has no effect on plus/minus per game when accounting for average assist and rebounds.
+
+$H_a: \beta_{2} \not= 0$ - Player average steals positively predicts player plus/minus per game, even when controlling for average assist and rebounds.
+
+Steals:
+
+$H_0: \beta_{3} = 0$ - Player average rebounds has no effect on plus/minus per game when accounting for average assist and steals
+
+$H_a: \beta_{3} \not= 0$ - Player average rebounds positively predicts player plus/minus per game, even when controlling for average assist and steals.
+
+## 3. Methods
+
+```{r}
+#| echo: false  
+#| eval: true  
+#| output: false  
+library(tidyverse)
+library(purrr)
+library(haven) 
+library(readxl)
+library(hoopR)
+library(GGally)
+library(ggplot2)
+library(sjPlot)
+library(olsrr)
+library(lmtest)
+library(car)
+library(hoopR)
+```
+
+### 3.1 Data Cleaning
+
+```{r}
+boxscores_2024 <- load_nba_player_box(seasons = 2024) %>% 
+  filter(season_type == 2 & !(game_date == "2023-12-09") & !(team_name == "All-Stars")) %>% 
+  mutate(plus_minus = as.numeric(plus_minus))
+
+player_avg <- boxscores_2024 %>%
+  group_by(athlete_display_name, team_name) %>% 
+  summarise(
+    team_color = unique(team_color),
+    games_played = n_distinct(game_id),
+    avg_pts = round(sum(points, na.rm = TRUE)/ n_distinct(game_id),2),
+    avg_ast = round(sum(assists, na.rm = TRUE)/ n_distinct(game_id),2),
+    avg_reb = round(sum(rebounds, na.rm = TRUE)/ n_distinct(game_id),2),
+    avg_stl = round(sum(steals, na.rm = TRUE)/ n_distinct(game_id),2),
+    avg_blk = round(sum(blocks, na.rm = TRUE)/ n_distinct(game_id),2),
+    avg_turnovers = round(sum(turnovers, na.rm = TRUE)/ n_distinct(game_id),2),
+    plus_minus_per = round(sum(plus_minus, na.rm = TRUE) / n_distinct(game_id),2),
+    wins = sum(as.integer(team_winner), na.rm = TRUE), 
+    .groups = "drop"
+  ) %>%
+  filter(games_played >= 58) %>% 
+  rename(player_name = athlete_display_name) %>% 
+  arrange(desc(avg_pts)) 
+
+player_avg$win_group <- cut(
+  player_avg$wins,
+  breaks = c(0, 25, 35, 45, Inf),
+  labels = c("Very Low", "Low", "Medium", "High"),
+  include.lowest = TRUE)
+```
+
+To clean the data I filtered for only regular season games removing the NBA CUP Final and All-Star game data as well. I then grouped each player by their name and found the total of their box score data for each statistic and divided by the number of games they played. Next, I filtered for only qualifying NBA players of 58 or more games played. Finally, I grouped players by their team’s number of wins from "Very Low" to "High" and placed it into a new column named win_group.
+
+### 3.2 Statistical Models
+
+Model 1: Simple linear regression
+
+Model 2: Multiple regression
+
+Model 3: Interaction model
+
+Model Diagnostics: Assumption checks
+
+## 4. Exploratory Data Analysis
+
+Dependent Variable: Plus/Minus per game, captures a player’s net scoring contribution while they are on the court. Across all qualifying players, the average plus/minus was $0.38$, with a minimum of $-8.55$ and a maximum of $8.63$.
+
+Independent Variables:
+
+Average assists per game ranged from $0.07$ to $10.9$, with a mean of $2.32$. Players with higher assist rates tend to be primary facilitators and may contribute more to offensive efficiency.
+
+Rebounds per game ranged from $0.06$ to $13.66$, with a mean of $3.79$ rebounds per game. Centers and forwards dominated the upper tail of the distribution.
+
+Steals per game ranged from $0.02$ to $2.03$, with a mean of $0.64$ steals per game. The data displayed heavily right-skewed, with most players averaging under 1.5 per game.
+
+### 4.1 Summary Statistics
+
+```{r}
+#| echo: false  
+#| eval: true  
+#| output: true
+summary(player_avg[, c("plus_minus_per", "avg_ast", "avg_reb", "avg_stl")])
+```
+
+### 4.2 Plots
+
+Average assist vs. Plus/Minus Per Game
+
+```{r}
+#| echo: false  
+#| eval: true  
+#| output: true
+ggplot(player_avg, aes(x = avg_ast, y = plus_minus_per)) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "lm", se = TRUE, color = "blue") +
+  labs(title = "Average assist vs. Plus/Minus Per Game",
+       x = "Average assist",
+       y = "Plus/Minus Per Game")
+```
+
+This plot shows a slight positive relationship between player assists per game and plus/minus per game. The regression line (y \~ x) indicates that plus/minus tends to increase as assists increase.
+
+Average steals vs. Plus/Minus Per Game
+
+```{r}
+#| echo: false  
+#| eval: true  
+#| output: true
+ggplot(player_avg, aes(x = avg_stl, y = plus_minus_per)) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "lm", se = TRUE, color = "blue") +
+  labs(title = "Average steals vs. Plus/Minus Per Game",
+       x = "Average steals",
+       y = "Plus/Minus Per Game")
+```
+
+This plot shows a slight positive relationship between player steals per game and plus/minus per game. The regression line (y \~ x) indicates that plus/minus tends to increase as steals increase.
+
+Average rebounds vs. Plus/Minus Per Game
+
+```{r}
+#| echo: false  
+#| eval: true  
+#| output: true
+ggplot(player_avg, aes(x = avg_reb, y = plus_minus_per)) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "lm", se = TRUE, color = "blue") +
+  labs(title = "Average rebounds vs. Plus/Minus Per Game",
+       x = "Average rebounds",
+       y = "Plus/Minus Per Game")
+```
+
+This plot shows a slight positive relationship between player rebounds per game and plus/minus per game. The regression line (y \~ x) indicates that plus/minus tends to increase as rebounds increase.
+
+## 5. Results — Model 1: Simple Regression
+
+### 5.1 Population Model
+
+$$
+plus\_minus\_per_{i} = \beta_{0} + \beta_{1}x_i + \epsilon_i
+$$
+
+$plus\_minus\_per_{i}$ - plus/minus per game for a player
+
+$\beta_{0}$ - the plus/minus per game when player average assist is zero
+
+$\beta_{1}$ - the predicted increase in a player's plus/minus per game for each additional assist they average
+
+$x_i$ - average number of assist for a player
+
+$\epsilon_i$ - everything impacting a players plus/minus per game that isn't average assist
+
+### 5.2 Estimated Model
+
+```{r}
+#| echo: false
+#| eval: true  
+#| output: false
+assist_model = lm(plus_minus_per ~ avg_ast, data = player_avg)
+summary(assist_model)
+```
+
+Estimated Regression Equation: 
+
+$$
+\widehat{plus\_minus\_per_{i}} = -0.60 + 0.42x_i + \epsilon_i 
+$$ 
+
+### 5.3 Interpretation
+
+Coefficients:
+
+$\beta_{0}$ - $-0.60$
+
+If a player averages 0 assist they are expected to have an average plus/minus of $-0.60243$ per game. This makes sense because players that don't positively impact the game by getting assist will cause their team to score less points therefor having a negative plus/minus.
+
+$\beta_{1}$ - $-0.42$
+
+The predicted change in a player's plus/minus per game for each additional assist they average. For every 1 added assist per game the player's plus/minus increases by 0.42. The95% confidence interval of the slope is ($\beta_{1}$) - $[0.26-0.59]$.
+
+Model Fit:
+
+t-value - $5.09$
+
+degrees of freedom(df) - $293$
+
+p-value - $6.56e-07$
+
+$R^{2}$ - 0.081
+
+Average assist explains about 8.1% of the variance in plus/minus per game.This is consistent with the plot showing there is a positive relationship between player assists per game and plus/minus per game but it weak. The slope is significantly different from $0$ because $p<0.05$ and the 95% confidence interval doesn't include $0$. Therefore, $H_0$ is rejected suggesting average assists influence on plus/minus per game is not due to random chance.
+
+### 5.4 Visualization
+
+```{r}
+#| echo: false
+#| eval: true  
+#| output: true
+ggplot(player_avg, aes(x = avg_ast, y = plus_minus_per)) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "lm", se = TRUE, color = "blue") +
+  labs(title = "Average assist vs. Plus/Minus Per Game",
+       x = "Average assist",
+       y = "Plus/Minus Per Game")
+```
+
+Relationship between NBA players average assist and plus/minus per game.
+
+## 6. Results — Model 2: Multiple Regression
+
+### 6.1 Population Model
+
+$$
+plus\_minus\_per_{i} = \beta_{0} + \beta_{1}x_1 + \beta_{2}x_2 + \beta_{3}x_3 + \epsilon
+$$
+
+### 6.2 Estimated Model
+
+$$
+plus\_minus\_per_{i} = -1.34 + 0.17 \cdot avg\_ast + 0.10 \cdot avg\_reb + 1.50\cdot avg\_stl
+$$
+
+### 6.3 Coefficient Interpretations
+
+$\beta_{0}$ - $-1.34$
+
+If a player averages 0 assist, rebounds, and steals they are expected to have an average plus/minus of $-1.34$ per game. This makes sense because players that don't positively impact the game by getting assist, rebounds and steals will cause their team to score less points therefor having a negative plus/minus.
+
+$\beta_{1}$ - $0.17$
+
+The expected change in a player's plus/minus per game for each additional assist they average, holding average rebounds and steals constant. For every 1 added assist per game the player's plus/minus increases by 0.34, holding average rebounds and steals constant.
+
+$\beta_{2}$ - $0.10$
+
+The expected change in a player's plus/minus per game for each additional rebound they average, holding average assist and steals constant. For every 1 added rebound per game the player's plus/minus increases by 0.15, holding average assist and steals constant.
+
+$\beta_{3}$ - $1.50$
+
+The expected change in a player's plus/minus per game for each additional steals they average, holding average assist and rebounds constant. For every 1 added steal per game the player's plus/minus increases by 0.15, holding average assists and rebounds constant.
+
+### 6.4 Statistical Evidence
+
+estimate of slope 1 ($\beta_{1}$) - $0.17$
+
+estimate of slope 2 ($\beta_{2}$) - $0.10$
+
+estimate of slope 3 ($\beta_{3}$) - $1.50$
+
+95% confidence interval ($\beta_{1}$) - $[-0.06-0.40]$
+
+95% confidence interval ($\beta_{2}$) - $[-0.05-0.25]$
+
+95% confidence interval ($\beta_{3}$) - $[0.22-2.79]$
+
+t-value ($\beta_{1}$) - $1.43$
+
+t-value ($\beta_{2}$) - $1.27$
+
+t-value ($\beta_{3}$) - $2.30$
+
+degrees of freedom(df) - $291$
+
+p-value ($\beta_{1}$) - $0.155$
+
+p-value ($\beta_{2}$) - $0.204$
+
+p-value ($\beta_{2}$) - $0.022$
+
+The slope of $\beta_{1}$ is not significantly different from $0$ because $p=0.155 > 0.05$ indicating that average assists do not reliably predict plus/minus per game. The slope of $\beta_{2}$ is not significantly different from $0$ because $p=0.2041 > 0.05$ meaning that average rebounds do not show a statistically significant effect on plus/minus per game. However, the slope of $\beta_{3}$ is significantly different from $0$ because $p=0.022 > 0.05$, indicating that average steals have a meaningful positive association with plus/minus per game.
+
+### 6.5 Model Fit
+
+$R^{2}$ - $0.110$
+
+Adjusted $R^{2}$ - $0.101$
+
+F-statistic - $11.98$
+
+p-value - $2.028e-07$
+
+The model explains about $11%$ of the variance in plus/minus per game. After adjusting for the number of predictors the explained variations is lower at $10.1%$. The model is significant at f is $11.98$ and p is $< 0.05$. Therefore, average assist, rebounds, and steals significantly predict a player's plus/minus per game.
+
+### 6.6 Model Comparison (Model 1 vs Model 2)
+
+The $R^{2}$ for model 2 of $0.110$ is larger than model 1 of 0.081. This is only a slight increase of 2.9% so it is not meaningful. The slope of average assist ($\beta_{1}$) decreased from $0.42$ in model 1 to $0.17$ in model 2. Therefore, including average rebounds and steals decreased the affect size of assists but it causing to to no longer remain significant. Overall, Model 2 slightly improves model fit as it shows the shared variance explained by assist, rebounds, and steals.
+
+## 7. Results — Model 3:
+
+### 7.1 Population Models
+
+Additive:
+
+$$Y = \beta_0 + \beta_1 X_{Low} + \beta_2 X_{Medium} + \beta_3 X_{High} + \beta_4 X_{avg\_ast} + \beta_5 X_{avg\_reb} + \beta_5 X_{avg\_stl} + \epsilon$$
+
+$\beta_0$ - mean for the for "Very Low" group by team, holding average rebounds and steals constant
+
+$\beta_1$ - difference in mean between the "Low" and "Very Low" groups, holding average rebounds and steals constant
+
+$\beta_2$ - difference in mean between the "Medium" and "Very Low" groups, holding average rebounds and steals constant
+
+$\beta_3$ - difference in mean between the "High" and "Very Low" groups, holding average rebounds and steals constant
+
+$\beta_4$ - change in plus/minus per game for 1 additional assist
+
+$\beta_5$ - change in plus/minus per game for 1 additional rebound
+
+$\beta_6$ - change in plus/minus per game for 1 additional steal
+
+Interaction:
+
+$Y = \beta_0 + \beta_1 X_{Low} + \beta_2 X_{Medium} + \beta_3 X_{High} + \beta_4 X_{(avg\_ast)} + \beta_5 X_{(avg\_reb)} + \beta_6 X_{(avg\_stl)} \dots$
+$+ \beta_{28} (avg\_ast \times avg\_reb \times avg\_stl)  + \beta_{29} (X_{Low} \times avg\_ast \times avg\_reb \times avg\_stl)$
+$+ \beta_{30} (X_{Medium} \times avg\_ast \times avg\_reb \times avg\_stl) + \beta_{31} (X_{High} \times avg\_ast \times avg\_reb \times avg\_stl) + \epsilon$
+
+$\beta_0$ - plus/minus per game of player in "Very Low" group with that averages, holding average rebounds and steals constant
+
+$\beta_1$ - difference between the "Low" and "Very Low" group, holding average rebounds and steals constant
+
+$\beta_2$ - difference between the "Medium" and "Very Low" group, holding average rebounds and steals constant
+
+$\beta_3$ - difference between the "High" and "Very Low" group, holding average rebounds and steals constant
+
+$\beta_4$ - change in plus/minus per game for 1 additional assist for a "Very Low" group team
+
+$\beta_5$ - change in plus/minus per game for 1 additional rebound a "Very Low" group team
+
+$\beta_6$ - change in plus/minus per game for 1 additional steal a "Very Low" group team
+
+$\beta_7$ - effect of avg_ast on plus/minus for a "Low" group team
+
+$\beta_8$ - effect of avg_reb on plus/minus for a "Low" group team
+
+$\beta_9$ - effect of avg_stl on plus/minus for a "Low" group team
+
+... continued for each predictor and win-group
+
+### 7.2 Estimated Model
+
+Interaction model:
+
+$Y = 0.46 + -0.98 X_{Low} + -1.66 X_{Medium} + -2.01 X_{High} + -1.57 X_{(avg\_ast)} + -0.47 X_{(avg\_reb)}$
+$+ -2.19 X_{(avg\_stl)} \dots + 0.09 (avg\_ast \times avg\_reb \times avg\_stl)$ 
+$+ 0.34 (X_{Low} \times avg\_ast \times avg\_reb \times avg\_stl) + -0.001 (X_{Medium} \times avg\_ast \times avg\_reb \times avg\_stl)$
+$+ -0.03 (X_{High} \times avg\_ast \times avg\_reb \times avg\_stl)$
+
+### 7.3 Interpretation
+
+$\beta_{0}$ - $0.46$
+
+A player on a very low win-group team that averages 0 assist, rebounds, and steals is expected to have an average plus/minus of $0.46$ per game.
+
+$\beta_{1}$ - $-0.98$ Difference in plus/minus between low win-group players and very low win-group players when average assist, rebounds, and steals are held constant.
+
+$\beta_{2}$ - $-1.66$
+
+Difference in plus/minus between medium win-group players and very low win-group players when average assist, rebounds, and steals are held constant.
+
+$\beta_{3}$ - $-2.01$
+
+Difference in plus/minus between high win-group players and very low win-group players when average assist, rebounds, and steals are held constant.
+
+$\beta_{4}$ - $-1.57$
+
+For every 1 added assist per game the player's plus/minus decreased by $1.57$, holding average rebounds and steals constant and before considering interactions. 
+
+$\beta_{5}$ - $-0.47$
+
+For every 1 added rebound per game the player's plus/minus decreased by $0.46$, holding average assist and steals constant and before considering interactions. 
+
+$\beta_{6}$ - $-2.19$
+
+For every 1 added steal per game the player's plus/minus decreased by $2.19$, holding average assist and rebounds constant and before considering interactions. 
+
+$\beta_{28}$ - $0.09$
+
+For players on a very low win-group team every 1 added assist, rebound, and steal per game the player's plus/minus increase by $0.09$. 
+
+$\beta_{29}$ - $0.34$
+
+For players on a low win-group team every 1 added assist, rebound, and steal per game the player's plus/minus increase by $0.34$. 
+
+$\beta_{30}$ - $-0.001$
+
+For players on a medium win-group team every 1 added assist, rebound, and steal per game the player's plus/minus decrease by $0.001$. 
+
+$\beta_{31}$ - $-0.03$
+
+For players on a high win-group team every 1 added assist, rebound, and steal per game the player's plus/minus decrease by $0.03$. 
+
+### 7.4 Evidence & Fit
+
+$R^{2}$ - $0.692$
+
+Adjusted $R^{2}$ - $0.656$
+
+F-statistic - $19.05$
+
+p-value - $2.2e-16$
+
+The comparison of the additive model and interaction model shows that including the interactions significantly improves model fit, (F(25,263)=$5.69$, $p<0.001$). This indicates that the relationship between average rebound and plus/minus per game significantly varies by team win group. 
+
+### 7.5 Visualization
+
+```{r}
+#| echo: false  
+#| eval: true  
+#| output: true  
+library(ggplot2)
+ggplot(player_avg, aes(x = avg_ast, y = plus_minus_per, color = win_group)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "lm", formula = y ~ x, se = TRUE) +
+  labs(title = "Interaction of Assists and Win Group on Plus/Minus",
+       x = "Average Assists per Game",
+       y = "Plus/Minus per Game")
+
+ggplot(player_avg, aes(x = avg_reb, y = plus_minus_per, color = win_group)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "lm", formula = y ~ x, se = TRUE) +
+  labs(title = "Interaction of Rebounds and Win Group on Plus/Minus",
+       x = "Average Rebounds per Game",
+       y = "Plus/Minus per Game")
+
+ggplot(player_avg, aes(x = avg_stl, y = plus_minus_per, color = win_group)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "lm", formula = y ~ x, se = TRUE) +
+  labs(title = "Interaction of Steals and Win Group on Plus/Minus",
+       x = "Average Steals per Game",
+       y = "Plus/Minus per Game")
+```
+The relationship of average assist, rebounds, and steals between plus/minus per game differs across team win groups, as shown by the varying slopes.
+
+## 8. Model Diagnostics Summary
+
+Model 1: 
+
+Residuals are approximately normal, with minor negative skew and slightly heavier tails, as indicated by the histogram, Q–Q, and P–P plots. The residuals–fitted plot shows slight funneling, and the Breusch–Pagan test ($X^2$ = 34.47, p \< 0.001)) indicates heteroscedasticity, suggesting a transformation may be needed. The Durbin–Watson test (DW = 2.04, p = 0.61) indicates no autocorrelation. The influence diagnostics flaged observations 1, 22, 32, 40, and 115, but none indicate influence. Overall, assumptions are mostly met, with heteroscedasticity as the main concern.
+
+Model 2:
+
+Residuals are approximately normal, with minor negative skew and slightly heavier tails, as indicated by the histogram, Q–Q, and P–P plots. The residuals–fitted plot shows funneling, and the Breusch–Pagan test ($X^2$ = 35.40, p \< 0.001) indicates heteroscedasticity, suggesting a transformation may be needed. Added-variable plots show no strong curvature and did not supporting linearity, suggesting the need for polynomial terms, splines, or transforming variables. The Durbin–Watson test (DW = 2.05, p = 0.64) indicates no autocorrelation. Multicollinearity is low all of the variable are within the tolerances and influence diagnostics flaged observations 10, 23, 32, 40, 42, and 115 but no single observation is excessively influential on the regression coefficients. Overall, assumptions are mostly met, with heteroscedasticity and non-linarity as the main concerns.
+
+Model 3:
+
+Residuals are approximately normal as indicated by the histogram. This is confirmed by the Q–Q and P–P plots show only slight deviations. The residuals–fitted plot shows minor funneling around 0, and the Breusch–Pagan test ($X^2$ = 3.07, p = 0.08) indicates some homoscedasticity. Added-variable plots show no strong curvature and did not supporting linearity, suggesting the need for polynomial terms, splines, or transforming variables. The Durbin–Watson test (DW = 2.05, p = 0.625) indicates no evidence of first-order autocorrelation in the residuals.  Multicollinearity is high as all variables have a VIF and tolerance values outside the thresholds. Therefore, the predictors are highly correlated with each other, so it is difficult to isolate the individual effect of each variable on plus/minus per game. This may cause the regression coefficients to be unstable and standard errors to be inflated. The influence diagnostics flagged observations 22, 29, 42 and 50, but all Cook’s D values are all below the threshold of 1 indicating no excessively influential on the regression coefficients. Although, observation 22, 29, and 42 show moderate influence, indicating they have some impact on the model but are not extreme enough to require removal. Overall, the assumptions are mostly met with homoscedasticity and multicollinearity as the main concerns.
+
+### 8.1 Normality
+
+Model 1:
+
+The residuals are approximately normal, as the histogram appears to be normally distributed around 0. The Q-Q plot shows minor deviations at the positive end and further deviations at the negative end. The P–P plot shows points with minor deviation between 0.2 and 0.6, indicating the data is not perfect normal in the middle-range but it is not severe enough to disprove the normality assumption.
+
+Model 2:
+
+The residuals are approximately normal, though the histogram and Q–Q plot suggest a slight negative (left) skew. The histogram shows a slightly heavier negative tail than the normal curve, indicating a few extreme negative residuals. The Q-Q plot shows minor deviations at the positive end and further deviations at the negative end. The P–P plot shows points with minor deviation between 0.2 and 0.6, indicating the data is not normally distributed.
+
+Model 3:
+
+The residuals are approximately normal, seen in the histogram and Q–Q plot. The histogram shows a normal curve. The Q-Q plot shows slight deviations at the positive and negative end. The P–P plot shows very few deviations between 0.4 and 0.6, indicating the data is not a perfect normal distributed.
+
+### 8.2 Homoscedasticity
+
+Model 1:
+
+The residuals vs fitted values plot shows slight funnel around 0 and -0.5. The Breusch Pagan Test showed a p = $4.34 × 10^{9}$ which is much smaller than $0.05$ indicating significant heteroscedasticity. This suggests that the variance of residuals is not constant across fitted values. To address this, a transformation can be applied to the response variable to stabilize the variance and potentially improve model fit.
+
+Model 2:
+
+The residuals vs fitted values plot shows some funnelly around -1. The Breusch Pagan Test showed a p = $2.69 × 10^{-09}$ which is much smaller than $0.05$ indicating significant heteroscedasticity. This suggests that the variance of residuals is not constant across fitted values. To address this, a transformation can be applied to the response variable to stabilize the variance and potentially improve model fit.
+
+Model 3:
+
+The residuals vs fitted values plot shows slight funnel shape around 0. The Breusch Pagan Test showed a p = $0.08$ which is greater than $0.05$ indicating some homoscedasticity. 
+
+### 8.3 Linearity
+
+Model 1:
+
+The added-variable plots show heavy concentrated between the 0 and 2 with no clear linear trend. This suggests that the conditional mean of average assist does not strongly related to this plus/minus per game in a linear fashion. This suggest the need for polynomial terms, splines, or transforming variables.
+
+Model 2:
+
+The added-variable plots show heavy concentrated near the center of the predictor range with no clear linear trend. This suggests that the conditional mean of the predictors do not strongly related to plus/minus per game in a linear fashion. This suggest the need for polynomial terms, splines, or transforming variables.
+
+Model 3:
+
+The added-variable plots show dispersed points for each win group with no clear linear trend. This suggests that the conditional mean of the predictors do not strongly related to plus/minus per game in a linear fashion. This suggest the need for polynomial terms, splines, or transforming variables.
+
+### 8.4 Autocorrelation
+
+Model 1:
+
+The Durbin–Watson test (DW = 2.04, p = 0.61) does not indicate first-order autocorrelation in the residuals, suggesting that the residuals are independent and standard regression inference is valid.
+
+Model 2:
+
+The Durbin–Watson test (DW = 2.05, p = 0.64) does not indicate first-order autocorrelation in the residuals, suggesting that the residuals are independent and standard regression inference is valid.
+
+Model 3:
+
+The Durbin–Watson test (DW = 2.05, p = 0.625) indicates there is no evidence of first-order autocorrelation in the residuals. This suggest the independence assumption is satisfied.
+
+### 8.5 Multicollinearity
+
+Model 2:
+All of the variable have a VIF bellow 10 and tolerance above 0.10 indicating that multicollinearity is not a concern for the predictors.
+
+Model 3:
+
+All of the variable have a VIF above 10 and tolerance below 0.10. This means the predictors are highly correlated with each other, so it is difficult to isolate the individual effect of each variable on plus/minus per game. This may cause regression the coefficients to be unstable and standard errors to be inflated. Therefore, reducing the reliability of significance tests.
+
+### 8.6 Influence
+
+Model 1:
+Observations 22 and 32 (Hat \> 2p/n) have high leverage, meaning they have unusual predictor values and could potentially influence the regression fit. Studentized residuals flag observations 40 and 115 as potential outliers (\|t\| \> 3), since their responses deviate substantially from the model’s predictions. Cook’s D values for all observations are far below 1, indicating that no single observation is excessively influential on the regression coefficients. Overall, while a few points have high leverage or large residuals, there are no extreme cases that unduly distort the model.
+
+Model 2:
+Observations 10, 32, and 42 (h \> 2p/n) have reletively high leverage and could influence the fitted regression model. Studentized residuals identify observations 23, 40, and 115 as potential outliers (\|t\| \> 3), because their responses are unusually far from the model predictions. However, Cook’s D values are all far below the threshold of 1. This suggests that no single observation is excessively influential on the regression coefficients.
+
+Model 3:
+
+Observations 22, 29, 42 and 50 (h \> 2p/n) have fairly high leverage, indicating they have unusual predictor values that could influence the regression fit. Studentized residuals identify observations 37 and 50 as potential outliers (\|t\| \> 3), because their responses are unusually far from the model predictions. However, all Cook’s D values are all below the threshold of 1. This suggests that no single observation is excessively influential on the regression coefficients. Although, observation 22, 29, and 42 show moderate influence, indicating they have some impact on the model but are not extreme enough to require removal. Overall, the regression appears robust, though a few points exhibit higher leverage or residuals.
+
+## 9. Discussion
+### 9.1 Summary of Key Findings
+
+Average assist was found as a significant predictor in model 1. However, once average rebounds and steals were added in Model 2 the effect size was reduces so it was no longer statistically significant. Although, the each predictor in Model 2 was not found signifiant the overall model was still statistically significant. In Model 3 it was found that the relationship between average rebound and plus/minus per game significantly varies by team win group. 
+
+### 9.2 Assumptions and Limitations
+
+The regression analysis assumes linearity, homoscedasticity, normality of residuals, and independence of observations. Model 1,2 and 3 violate the assumption of homogeneity, suggesting transformations may be needed. Model 2 and 3 did not supporting linearity, suggesting the need for polynomial terms, splines, or transforming variables. Model 3 found the predictors are highly correlated with each other preventing the isolation of the individual effects of each variable on plus/minus per game. Generalizability is limited to the specific 2023-24 NBA as strategies, styles, or league rules may limit applicability to different contexts or time periods.
+
+### 9.3 Practical Implications
+
+Predictors like average assists, rebounds, or steals that are significantly associated with plus/minus per game highlight key performance areas that contribute to team success. Average steals has a stronger correlation with plus/minus per game. Therefore, players that average higher steals per game should be greater valued due to there greater impact on plus/minus. However, this may be caused by the smaller range in steals than the other predictors. Model 3 found that players in higher win groups had lower a plus/minus per game. Therefore, team success must be considered when evaluating a players plus/minus per game. It also found that average assist have a larger impact on plus/minus per game on higher win group team's. Average rebounds has a much smaller influence on plus/minus but follows the same pattern. When using four-way interactions the plus/minus per game decreased on medium and higher win-group teams. Therefore, successful teams rely on specialization of players in certain roles.
+
+### 9.4 Directions for Future Analysis
+
+Future research should investigate the nonlinear relationships to discover any further relationships. Additional predictors such as style, usage rate, lineup, and opponent strength may provide more in-depth insight into how player contributions affect plus/minus. Methodologically, cross-validation, regularization, and transformation can reduce over fitting and better handle complex interactions. Also, standardization can be applied to adjust for the smaller scale of steals.
+
+## 10. References
+
+Carey, M. (2024). hoopR: Access Men’s and Women’s Basketball Play-by-Play Data. R package version X.X.X. https://github.com/sportsdataverse/hoopR
